@@ -5,7 +5,6 @@ $conn = getConnection();
 $mensaje = '';
 $error = '';
 
-// Procesar acciones
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $accion = $_POST['accion'];
     
@@ -31,13 +30,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $cancha_id = (int)$_POST['cancha_id'];
             $stmt = $conn->prepare("UPDATE canchas SET activa = NOT activa WHERE id = ?");
             if ($stmt->execute([$cancha_id])) {
-                $mensaje = "Estado de cancha actualizado";
+                $mensaje = "Estado actualizado";
             }
             break;
     }
 }
 
-// Obtener estadísticas
 $stats = [];
 $stats['total_reservas_hoy'] = $conn->query("
     SELECT COUNT(*) FROM reservas 
@@ -63,7 +61,6 @@ $stats['ingresos_mes'] = $conn->query("
     AND estado = 'confirmada'
 ")->fetchColumn();
 
-// Obtener próximas reservas
 $proximas_reservas = $conn->query("
     SELECT r.*, c.nombre as cancha_nombre, cl.nombre as cliente_nombre, cl.telefono
     FROM reservas r
@@ -74,10 +71,8 @@ $proximas_reservas = $conn->query("
     LIMIT 20
 ")->fetchAll();
 
-// Obtener todas las canchas
 $canchas = $conn->query("SELECT * FROM canchas ORDER BY id")->fetchAll();
 
-// Obtener reservas del día actual
 $fecha_filtro = isset($_GET['fecha']) ? $_GET['fecha'] : date('Y-m-d');
 $reservas_dia = $conn->prepare("
     SELECT r.*, c.nombre as cancha_nombre, cl.nombre as cliente_nombre, cl.telefono, cl.email
@@ -90,7 +85,6 @@ $reservas_dia = $conn->prepare("
 $reservas_dia->execute([$fecha_filtro]);
 $reservas_del_dia = $reservas_dia->fetchAll();
 
-// Cancha más rentable
 $cancha_rentable = $conn->query("
     SELECT c.nombre, COALESCE(SUM(r.total), 0) as total_ingresos
     FROM canchas c
@@ -105,316 +99,408 @@ $cancha_rentable = $conn->query("
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Panel de Administración</title>
+    <title>⚙️ Panel de Administración</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
+        
+        :root {
+            --dark-bg: #0a0e27;
+            --card-bg: #141b2d;
+            --accent-green: #00ff87;
+            --accent-blue: #00d9ff;
+            --accent-red: #ff0055;
+            --accent-orange: #ff8c00;
+            --text-light: #ffffff;
+            --text-gray: #a0aec0;
+            --border-color: #1e2a47;
+        }
+        
         body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: var(--dark-bg);
+            background-image: 
+                radial-gradient(circle at 20% 50%, rgba(0, 255, 135, 0.05) 0%, transparent 50%),
+                radial-gradient(circle at 80% 80%, rgba(0, 217, 255, 0.05) 0%, transparent 50%);
             min-height: 100vh;
+            color: var(--text-light);
             padding: 20px;
         }
-        .container {
-            max-width: 1600px;
-            margin: 0 auto;
-            background: white;
-            border-radius: 15px;
-            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
-            overflow: hidden;
-        }
+        
+        .container { max-width: 1800px; margin: 0 auto; }
+        
         .header {
-            background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%);
-            color: white;
-            padding: 30px;
+            background: linear-gradient(135deg, var(--card-bg) 0%, #1a2332 100%);
+            border: 2px solid var(--border-color);
+            border-radius: 20px;
+            padding: 40px;
+            margin-bottom: 30px;
             text-align: center;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
         }
-        .header h1 { font-size: 2.5em; margin-bottom: 10px; }
+        
+        .header h1 {
+            font-size: 2.5em;
+            background: linear-gradient(135deg, var(--accent-red), var(--accent-orange));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 10px;
+            font-weight: 900;
+        }
+        
         .nav {
-            display: flex;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
             gap: 15px;
-            padding: 20px 30px;
-            background: #f8f9fa;
-            border-bottom: 2px solid #e9ecef;
+            margin-bottom: 30px;
         }
+        
         .nav a {
-            padding: 10px 20px;
-            background: white;
-            color: #333;
+            background: var(--card-bg);
+            border: 2px solid var(--border-color);
+            color: var(--text-light);
             text-decoration: none;
-            border-radius: 5px;
-            border: 2px solid #ddd;
+            padding: 15px 20px;
+            border-radius: 15px;
+            text-align: center;
+            font-weight: 600;
             transition: all 0.3s;
         }
+        
         .nav a:hover {
-            background: #667eea;
-            color: white;
-            border-color: #667eea;
+            border-color: var(--accent-green);
+            transform: translateY(-3px);
+            box-shadow: 0 10px 25px rgba(0, 255, 135, 0.2);
         }
-        .content { padding: 30px; }
+        
         .alert {
-            padding: 15px;
-            border-radius: 5px;
-            margin-bottom: 20px;
+            padding: 20px;
+            border-radius: 15px;
+            margin-bottom: 25px;
+            border-left: 4px solid var(--accent-green);
+            background: linear-gradient(135deg, rgba(0, 255, 135, 0.1), rgba(0, 255, 135, 0.05));
+            color: var(--accent-green);
             animation: slideIn 0.3s;
         }
+        
         @keyframes slideIn {
-            from { opacity: 0; transform: translateY(-10px); }
-            to { opacity: 1; transform: translateY(0); }
+            from { opacity: 0; transform: translateX(-20px); }
+            to { opacity: 1; transform: translateX(0); }
         }
-        .alert-success {
-            background: #d4edda;
-            color: #155724;
-            border: 1px solid #c3e6cb;
-        }
-        .alert-error {
-            background: #f8d7da;
-            color: #721c24;
-            border: 1px solid #f5c6cb;
-        }
+        
         .stats-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
             gap: 20px;
             margin-bottom: 30px;
         }
+        
         .stat-card {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
+            background: var(--card-bg);
+            border: 2px solid var(--border-color);
+            border-radius: 15px;
             padding: 25px;
-            border-radius: 10px;
-            box-shadow: 0 5px 15px rgba(0,0,0,0.2);
-            transition: transform 0.3s;
+            position: relative;
+            overflow: hidden;
+            transition: all 0.3s;
         }
+        
+        .stat-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 4px;
+            height: 100%;
+            background: var(--accent-green);
+        }
+        
+        .stat-card:nth-child(2)::before { background: var(--accent-orange); }
+        .stat-card:nth-child(3)::before { background: var(--accent-blue); }
+        .stat-card:nth-child(4)::before { background: var(--accent-red); }
+        
         .stat-card:hover {
             transform: translateY(-5px);
+            box-shadow: 0 15px 35px rgba(0, 255, 135, 0.2);
         }
-        .stat-card h3 { font-size: 0.9em; margin-bottom: 10px; opacity: 0.9; }
-        .stat-card .value { font-size: 2.5em; font-weight: bold; }
-        .stat-card.green {
-            background: linear-gradient(135deg, #2ecc71 0%, #27ae60 100%);
+        
+        .stat-card h3 {
+            color: var(--text-gray);
+            font-size: 0.9em;
+            margin-bottom: 10px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
         }
-        .stat-card.orange {
-            background: linear-gradient(135deg, #f39c12 0%, #e67e22 100%);
+        
+        .stat-card .value {
+            font-size: 2.5em;
+            font-weight: 900;
+            background: linear-gradient(135deg, var(--accent-green), var(--accent-blue));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
         }
-        .stat-card.red {
-            background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%);
-        }
+        
         .section {
-            background: #f8f9fa;
-            padding: 25px;
-            border-radius: 10px;
-            margin-bottom: 25px;
+            background: var(--card-bg);
+            border: 2px solid var(--border-color);
+            border-radius: 20px;
+            padding: 30px;
+            margin-bottom: 30px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
         }
+        
         .section h2 {
-            margin-bottom: 20px;
-            color: #333;
-            border-bottom: 3px solid #667eea;
-            padding-bottom: 10px;
+            color: var(--accent-green);
+            margin-bottom: 25px;
+            font-size: 1.8em;
+            border-bottom: 2px solid var(--border-color);
+            padding-bottom: 15px;
         }
+        
         .table {
             width: 100%;
-            border-collapse: collapse;
-            background: white;
-            border-radius: 10px;
-            overflow: hidden;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            border-collapse: separate;
+            border-spacing: 0;
         }
+        
         .table th {
-            background: #667eea;
-            color: white;
+            background: var(--dark-bg);
+            color: var(--accent-green);
             padding: 15px;
             text-align: left;
-            font-weight: 600;
+            font-weight: 700;
+            border-bottom: 2px solid var(--accent-green);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            font-size: 0.85em;
         }
+        
         .table td {
-            padding: 12px 15px;
-            border-bottom: 1px solid #e9ecef;
+            padding: 15px;
+            border-bottom: 1px solid var(--border-color);
+            color: var(--text-gray);
         }
+        
         .table tr:hover {
-            background: #f8f9fa;
+            background: rgba(0, 255, 135, 0.05);
         }
+        
         .badge {
-            padding: 5px 12px;
+            padding: 6px 15px;
             border-radius: 20px;
             font-size: 0.85em;
-            font-weight: 600;
+            font-weight: 700;
+            text-transform: uppercase;
         }
+        
         .badge-success {
-            background: #d4edda;
-            color: #155724;
+            background: var(--accent-green);
+            color: var(--dark-bg);
         }
+        
         .badge-danger {
-            background: #f8d7da;
-            color: #721c24;
+            background: var(--accent-red);
+            color: var(--text-light);
         }
+        
         .badge-warning {
-            background: #fff3cd;
-            color: #856404;
+            background: var(--accent-orange);
+            color: var(--dark-bg);
         }
+        
         .btn {
-            padding: 8px 15px;
+            padding: 10px 20px;
             border: none;
-            border-radius: 5px;
+            border-radius: 8px;
             cursor: pointer;
             font-size: 14px;
+            font-weight: 700;
             transition: all 0.3s;
-            text-decoration: none;
-            display: inline-block;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
         }
+        
         .btn-danger {
-            background: #e74c3c;
-            color: white;
+            background: linear-gradient(135deg, var(--accent-red), #cc0044);
+            color: var(--text-light);
         }
-        .btn-danger:hover {
-            background: #c0392b;
-        }
+        
         .btn-primary {
-            background: #667eea;
-            color: white;
+            background: linear-gradient(135deg, var(--accent-blue), #0099cc);
+            color: var(--text-light);
         }
-        .btn-primary:hover {
-            background: #5568d3;
-        }
+        
         .btn-success {
-            background: #2ecc71;
-            color: white;
+            background: linear-gradient(135deg, var(--accent-green), #00cc6a);
+            color: var(--dark-bg);
         }
-        .btn-success:hover {
-            background: #27ae60;
+        
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0, 255, 135, 0.3);
         }
+        
+        .cancha-item {
+            background: var(--dark-bg);
+            border: 2px solid var(--border-color);
+            padding: 20px;
+            border-radius: 15px;
+            margin-bottom: 15px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            transition: all 0.3s;
+        }
+        
+        .cancha-item:hover {
+            border-color: var(--accent-green);
+            transform: translateX(5px);
+        }
+        
+        .cancha-info h4 {
+            color: var(--accent-green);
+            margin-bottom: 8px;
+            font-size: 1.2em;
+        }
+        
+        .cancha-info p {
+            color: var(--text-gray);
+        }
+        
         .form-inline {
             display: flex;
             gap: 10px;
             align-items: center;
+            flex-wrap: wrap;
         }
+        
         .form-inline input,
         .form-inline select {
-            padding: 8px 12px;
-            border: 2px solid #ddd;
-            border-radius: 5px;
+            padding: 10px 15px;
+            background: var(--dark-bg);
+            border: 2px solid var(--border-color);
+            border-radius: 8px;
+            color: var(--text-light);
         }
+        
+        .form-inline input:focus,
+        .form-inline select:focus {
+            outline: none;
+            border-color: var(--accent-green);
+        }
+        
         .grid-2 {
             display: grid;
             grid-template-columns: 1fr 1fr;
-            gap: 25px;
+            gap: 30px;
         }
-        @media (max-width: 768px) {
-            .grid-2 {
-                grid-template-columns: 1fr;
-            }
-        }
-        .cancha-item {
-            background: white;
-            padding: 15px;
-            border-radius: 8px;
-            margin-bottom: 10px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
-        }
-        .cancha-info h4 {
-            margin-bottom: 5px;
-            color: #333;
-        }
-        .cancha-info p {
-            color: #666;
-            font-size: 0.9em;
-        }
+        
         .fecha-selector {
-            margin-bottom: 20px;
+            margin-bottom: 25px;
             text-align: center;
+        }
+        
+        .fecha-selector input {
+            padding: 12px 20px;
+            background: var(--dark-bg);
+            border: 2px solid var(--border-color);
+            border-radius: 10px;
+            color: var(--text-light);
+            margin-right: 10px;
+        }
+        
+        @media (max-width: 968px) {
+            .grid-2 { grid-template-columns: 1fr; }
         }
     </style>
 </head>
 <body>
     <div class="container">
         <div class="header">
-            <h1>⚙️ Panel de Administración</h1>
+            <h1><i class="fas fa-cog"></i> PANEL DE ADMINISTRACIÓN</h1>
             <p>Gestión completa del sistema</p>
         </div>
         
         <div class="nav">
-            <a href="index.php">📅 Reservas</a>
-            <a href="nueva_reserva.php">➕ Nueva Reserva</a>
-            <a href="mis_reservas.php">📋 Buscar Reservas</a>
-            <a href="reportes.php">📊 Reportes</a>
+            <a href="index.php"><i class="fas fa-calendar-alt"></i> Reservas</a>
+            <a href="nueva_reserva.php"><i class="fas fa-plus-circle"></i> Nueva</a>
+            <a href="mis_reservas.php"><i class="fas fa-list"></i> Buscar</a>
+            <a href="reportes.php"><i class="fas fa-chart-line"></i> Reportes</a>
         </div>
         
-        <div class="content">
-            <?php if ($mensaje): ?>
-                <div class="alert alert-success"><?php echo $mensaje; ?></div>
-            <?php endif; ?>
-            
-            <?php if ($error): ?>
-                <div class="alert alert-error"><?php echo $error; ?></div>
-            <?php endif; ?>
-            
-            <div class="stats-grid">
-                <div class="stat-card green">
-                    <h3>Reservas Hoy</h3>
-                    <div class="value"><?php echo $stats['total_reservas_hoy']; ?></div>
-                </div>
-                <div class="stat-card orange">
-                    <h3>Ingresos Hoy</h3>
-                    <div class="value">$<?php echo number_format($stats['ingresos_hoy'], 0, ',', '.'); ?></div>
-                </div>
-                <div class="stat-card">
-                    <h3>Reservas Este Mes</h3>
-                    <div class="value"><?php echo $stats['reservas_mes']; ?></div>
-                </div>
-                <div class="stat-card red">
-                    <h3>Ingresos Este Mes</h3>
-                    <div class="value">$<?php echo number_format($stats['ingresos_mes'], 0, ',', '.'); ?></div>
+        <?php if ($mensaje): ?>
+            <div class="alert"><i class="fas fa-check-circle"></i> <?php echo $mensaje; ?></div>
+        <?php endif; ?>
+        
+        <div class="stats-grid">
+            <div class="stat-card">
+                <h3><i class="fas fa-calendar-check"></i> Reservas Hoy</h3>
+                <div class="value"><?php echo $stats['total_reservas_hoy']; ?></div>
+            </div>
+            <div class="stat-card">
+                <h3><i class="fas fa-dollar-sign"></i> Ingresos Hoy</h3>
+                <div class="value">$<?php echo number_format($stats['ingresos_hoy'], 0, ',', '.'); ?></div>
+            </div>
+            <div class="stat-card">
+                <h3><i class="fas fa-calendar-alt"></i> Reservas Mes</h3>
+                <div class="value"><?php echo $stats['reservas_mes']; ?></div>
+            </div>
+            <div class="stat-card">
+                <h3><i class="fas fa-coins"></i> Ingresos Mes</h3>
+                <div class="value">$<?php echo number_format($stats['ingresos_mes'], 0, ',', '.'); ?></div>
+            </div>
+        </div>
+        
+        <?php if ($cancha_rentable): ?>
+        <div class="section">
+            <h2><i class="fas fa-trophy"></i> Cancha Más Rentable</h2>
+            <div class="cancha-item">
+                <div class="cancha-info">
+                    <h4><i class="fas fa-futbol"></i> <?php echo htmlspecialchars($cancha_rentable['nombre']); ?></h4>
+                    <p>Ingresos totales: <strong>$<?php echo number_format($cancha_rentable['total_ingresos'], 0, ',', '.'); ?></strong></p>
                 </div>
             </div>
-            
-            <?php if ($cancha_rentable): ?>
+        </div>
+        <?php endif; ?>
+        
+        <div class="grid-2">
             <div class="section">
-                <h2>🏆 Cancha Más Rentable</h2>
-                <div class="cancha-item">
-                    <div class="cancha-info">
-                        <h4><?php echo htmlspecialchars($cancha_rentable['nombre']); ?></h4>
-                        <p>Ingresos totales: $<?php echo number_format($cancha_rentable['total_ingresos'], 0, ',', '.'); ?></p>
-                    </div>
-                </div>
-            </div>
-            <?php endif; ?>
-            
-            <div class="grid-2">
-                <div class="section">
-                    <h2>🏟️ Gestión de Canchas</h2>
-                    <?php foreach ($canchas as $cancha): ?>
-                        <div class="cancha-item">
-                            <div class="cancha-info">
-                                <h4><?php echo htmlspecialchars($cancha['nombre']); ?></h4>
-                                <p>Precio: $<?php echo number_format($cancha['precio_hora'], 0, ',', '.'); ?>/hora</p>
-                                <span class="badge <?php echo $cancha['activa'] ? 'badge-success' : 'badge-danger'; ?>">
-                                    <?php echo $cancha['activa'] ? 'Activa' : 'Inactiva'; ?>
-                                </span>
-                            </div>
-                            <div>
-                                <form method="POST" style="display: inline;">
-                                    <input type="hidden" name="accion" value="actualizar_precio">
-                                    <input type="hidden" name="cancha_id" value="<?php echo $cancha['id']; ?>">
-                                    <input type="number" name="nuevo_precio" value="<?php echo $cancha['precio_hora']; ?>" 
-                                           style="width: 100px; padding: 5px; margin-right: 5px;">
-                                    <button type="submit" class="btn btn-primary">💰 Actualizar</button>
-                                </form>
-                                <form method="POST" style="display: inline;">
-                                    <input type="hidden" name="accion" value="toggle_cancha">
-                                    <input type="hidden" name="cancha_id" value="<?php echo $cancha['id']; ?>">
-                                    <button type="submit" class="btn <?php echo $cancha['activa'] ? 'btn-danger' : 'btn-success'; ?>">
-                                        <?php echo $cancha['activa'] ? '❌ Desactivar' : '✅ Activar'; ?>
-                                    </button>
-                                </form>
-                            </div>
+                <h2><i class="fas fa-futbol"></i> Gestión de Canchas</h2>
+                <?php foreach ($canchas as $cancha): ?>
+                    <div class="cancha-item">
+                        <div class="cancha-info">
+                            <h4><?php echo htmlspecialchars($cancha['nombre']); ?></h4>
+                            <p>Precio: $<?php echo number_format($cancha['precio_hora'], 0, ',', '.'); ?>/hora</p>
+                            <span class="badge <?php echo $cancha['activa'] ? 'badge-success' : 'badge-danger'; ?>">
+                                <?php echo $cancha['activa'] ? 'ACTIVA' : 'INACTIVA'; ?>
+                            </span>
                         </div>
-                    <?php endforeach; ?>
-                </div>
-                
-                <div class="section">
-                    <h2>📅 Próximas Reservas</h2>
+                        <div class="form-inline">
+                            <form method="POST" style="display: inline;">
+                                <input type="hidden" name="accion" value="actualizar_precio">
+                                <input type="hidden" name="cancha_id" value="<?php echo $cancha['id']; ?>">
+                                <input type="number" name="nuevo_precio" value="<?php echo $cancha['precio_hora']; ?>" 
+                                       style="width: 120px;">
+                                <button type="submit" class="btn btn-primary">
+                                    <i class="fas fa-edit"></i> Actualizar
+                                </button>
+                            </form>
+                            <form method="POST" style="display: inline;">
+                                <input type="hidden" name="accion" value="toggle_cancha">
+                                <input type="hidden" name="cancha_id" value="<?php echo $cancha['id']; ?>">
+                                <button type="submit" class="btn <?php echo $cancha['activa'] ? 'btn-danger' : 'btn-success'; ?>">
+                                    <i class="fas fa-<?php echo $cancha['activa'] ? 'times' : 'check'; ?>-circle"></i>
+                                    <?php echo $cancha['activa'] ? 'Desactivar' : 'Activar'; ?>
+                                </button>
+                            </form>
+                        </div>
+                    </div>
+                <?php endforeach; ?>
+            </div>
+            
+            <div class="section">
+                <h2><i class="fas fa-clock"></i> Próximas Reservas</h2>
+                <div style="overflow-x: auto;">
                     <table class="table">
                         <thead>
                             <tr>
@@ -437,16 +523,20 @@ $cancha_rentable = $conn->query("
                     </table>
                 </div>
             </div>
+        </div>
+        
+        <div class="section">
+            <h2><i class="fas fa-calendar-day"></i> Reservas del Día</h2>
+            <div class="fecha-selector">
+                <form method="GET" class="form-inline" style="justify-content: center;">
+                    <input type="date" name="fecha" value="<?php echo $fecha_filtro; ?>">
+                    <button type="submit" class="btn btn-primary">
+                        <i class="fas fa-filter"></i> Filtrar
+                    </button>
+                </form>
+            </div>
             
-            <div class="section">
-                <h2>📋 Reservas del Día</h2>
-                <div class="fecha-selector">
-                    <form method="GET" class="form-inline" style="justify-content: center;">
-                        <input type="date" name="fecha" value="<?php echo $fecha_filtro; ?>">
-                        <button type="submit" class="btn btn-primary">Filtrar</button>
-                    </form>
-                </div>
-                
+            <div style="overflow-x: auto;">
                 <table class="table">
                     <thead>
                         <tr>
@@ -463,31 +553,34 @@ $cancha_rentable = $conn->query("
                     <tbody>
                         <?php if (empty($reservas_del_dia)): ?>
                             <tr>
-                                <td colspan="8" style="text-align: center; padding: 30px;">
+                                <td colspan="8" style="text-align: center; padding: 40px;">
+                                    <i class="fas fa-inbox" style="font-size: 3em; color: var(--text-gray); display: block; margin-bottom: 10px;"></i>
                                     No hay reservas para esta fecha
                                 </td>
                             </tr>
                         <?php else: ?>
                             <?php foreach ($reservas_del_dia as $reserva): ?>
                                 <tr>
-                                    <td>#<?php echo $reserva['id']; ?></td>
+                                    <td><strong>#<?php echo $reserva['id']; ?></strong></td>
                                     <td><?php echo substr($reserva['hora_inicio'], 0, 5); ?> - <?php echo substr($reserva['hora_fin'], 0, 5); ?></td>
                                     <td><?php echo htmlspecialchars($reserva['cancha_nombre']); ?></td>
                                     <td><?php echo htmlspecialchars($reserva['cliente_nombre']); ?></td>
                                     <td><?php echo htmlspecialchars($reserva['telefono']); ?></td>
-                                    <td>$<?php echo number_format($reserva['total'], 0, ',', '.'); ?></td>
+                                    <td><strong>$<?php echo number_format($reserva['total'], 0, ',', '.'); ?></strong></td>
                                     <td>
                                         <span class="badge badge-<?php echo $reserva['estado'] == 'confirmada' ? 'success' : 'warning'; ?>">
-                                            <?php echo ucfirst($reserva['estado']); ?>
+                                            <?php echo strtoupper($reserva['estado']); ?>
                                         </span>
                                     </td>
                                     <td>
                                         <?php if ($reserva['estado'] == 'confirmada'): ?>
                                             <form method="POST" style="display: inline;" 
-                                                  onsubmit="return confirm('¿Seguro que deseas cancelar esta reserva?');">
+                                                  onsubmit="return confirm('¿Cancelar esta reserva?');">
                                                 <input type="hidden" name="accion" value="cancelar_reserva">
                                                 <input type="hidden" name="reserva_id" value="<?php echo $reserva['id']; ?>">
-                                                <button type="submit" class="btn btn-danger">❌ Cancelar</button>
+                                                <button type="submit" class="btn btn-danger">
+                                                    <i class="fas fa-times-circle"></i> Cancelar
+                                                </button>
                                             </form>
                                         <?php endif; ?>
                                     </td>
