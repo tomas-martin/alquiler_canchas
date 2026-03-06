@@ -1,0 +1,43 @@
+services:
+  app:
+    build: .
+    container_name: alquiler-canchas-app
+    ports:
+      - "8080:80"
+    environment:
+      APP_ENV: ${APP_ENV:-development}
+      APP_DEBUG: ${APP_DEBUG:-1}
+      TZ: ${TZ:-America/Argentina/Mendoza}
+      DB_HOST: db
+      DB_PORT: 3306
+      DB_NAME: ${DB_NAME:-alquiler_canchas}
+      DB_USER: ${DB_USER:-app_user}
+      DB_PASS: ${DB_PASS:-app_password}
+      SESSION_COOKIE_SECURE: ${SESSION_COOKIE_SECURE:-0}
+    depends_on:
+      db:
+        condition: service_healthy
+
+  db:
+    image: mysql:8.0
+    container_name: alquiler-canchas-db
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root_password}
+      MYSQL_DATABASE: ${DB_NAME:-alquiler_canchas}
+      MYSQL_USER: ${DB_USER:-app_user}
+      MYSQL_PASSWORD: ${DB_PASS:-app_password}
+      TZ: ${TZ:-America/Argentina/Mendoza}
+    ports:
+      - "3307:3306"
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-u${DB_USER:-app_user}", "-p${DB_PASS:-app_password}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./alquiler_canchas.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+
+volumes:
+  mysql_data:

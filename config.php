@@ -1,16 +1,25 @@
 <?php
-// Configuración de error reporting para desarrollo
-error_reporting(E_ALL);
-ini_set('display_errors', 1);
+// Configuración de entorno
+$APP_ENV = getenv('APP_ENV') ?: 'production';
+$APP_DEBUG = filter_var(getenv('APP_DEBUG') ?: ($APP_ENV === 'development' ? '1' : '0'), FILTER_VALIDATE_BOOLEAN);
+
+if ($APP_DEBUG) {
+    error_reporting(E_ALL);
+    ini_set('display_errors', '1');
+} else {
+    error_reporting(E_ALL & ~E_NOTICE & ~E_DEPRECATED & ~E_STRICT);
+    ini_set('display_errors', '0');
+}
 
 // Configuración de zona horaria
-date_default_timezone_set('America/Argentina/Mendoza');
+date_default_timezone_set(getenv('TZ') ?: 'America/Argentina/Mendoza');
 
-// Configuración de la base de datos
-define('DB_HOST', 'localhost');
-define('DB_USER', 'root');
-define('DB_PASS', '');
-define('DB_NAME', 'alquiler_canchas');
+// Configuración de la base de datos (desde variables de entorno)
+define('DB_HOST', getenv('DB_HOST') ?: 'localhost');
+define('DB_PORT', getenv('DB_PORT') ?: '3306');
+define('DB_USER', getenv('DB_USER') ?: 'root');
+define('DB_PASS', getenv('DB_PASS') ?: '');
+define('DB_NAME', getenv('DB_NAME') ?: 'alquiler_canchas');
 
 // Configuración de horarios
 define('HORA_APERTURA', 16);
@@ -24,11 +33,11 @@ define('SIMBOLO_MONEDA', '$');
 // Conexión a la base de datos con manejo de errores mejorado
 function getConnection() {
     static $conn = null;
-    
+
     if ($conn === null) {
         try {
             $conn = new PDO(
-                "mysql:host=" . DB_HOST . ";dbname=" . DB_NAME . ";charset=utf8mb4",
+                "mysql:host=" . DB_HOST . ";port=" . DB_PORT . ";dbname=" . DB_NAME . ";charset=utf8mb4",
                 DB_USER,
                 DB_PASS,
                 [
@@ -43,7 +52,7 @@ function getConnection() {
             die("Error de conexión a la base de datos. Por favor, contacte al administrador.");
         }
     }
-    
+
     return $conn;
 }
 
@@ -59,37 +68,37 @@ function generarHorarios() {
 // Función para verificar disponibilidad REAL de una cancha
 function verificarDisponibilidad($cancha_id, $fecha, $hora_inicio, $horas = 1) {
     $conn = getConnection();
-    
+
     try {
         $hora_inicio_int = (int)substr($hora_inicio, 0, 2);
         $horas_ocupadas = [];
-        
+
         for ($i = 0; $i < $horas; $i++) {
             $hora_verificar = sprintf("%02d:00", $hora_inicio_int + $i);
-            
+
             $stmt = $conn->prepare("
                 SELECT COUNT(*) as cantidad
-                FROM reservas 
-                WHERE cancha_id = ? 
-                AND fecha = ? 
+                FROM reservas
+                WHERE cancha_id = ?
+                AND fecha = ?
                 AND hora_inicio = ?
                 AND estado IN ('pendiente', 'confirmada', 'completada')
                 FOR UPDATE
             ");
-            
+
             $stmt->execute([$cancha_id, $fecha, $hora_verificar]);
             $resultado = $stmt->fetch();
-            
+
             if ($resultado['cantidad'] > 0) {
                 $horas_ocupadas[] = $hora_verificar;
             }
         }
-        
+
         return [
             'disponible' => empty($horas_ocupadas),
             'horas_ocupadas' => $horas_ocupadas
         ];
-        
+
     } catch (PDOException $e) {
         error_log("Error al verificar disponibilidad: " . $e->getMessage());
         return [
@@ -103,10 +112,10 @@ function verificarDisponibilidad($cancha_id, $fecha, $hora_inicio, $horas = 1) {
 // Función para crear reserva de forma segura
 function crearReservaSegura($datos) {
     $conn = getConnection();
-    
+
     try {
         $conn->beginTransaction();
-        
+
         // 1. Verificar disponibilidad con bloqueo
         $disponibilidad = verificarDisponibilidad(
             $datos['cancha_id'],
@@ -114,7 +123,7 @@ function crearReservaSegura($datos) {
             $datos['hora_inicio'],
             $datos['horas']
         );
-        
+
         if (!$disponibilidad['disponible']) {
             $conn->rollBack();
             return [
@@ -122,16 +131,16 @@ function crearReservaSegura($datos) {
                 'mensaje' => 'Las siguientes horas ya están ocupadas: ' . implode(', ', $disponibilidad['horas_ocupadas'])
             ];
         }
-        
+
         // 2. Insertar o actualizar cliente
         $stmt = $conn->prepare("SELECT id FROM clientes WHERE telefono = ? FOR UPDATE");
         $stmt->execute([$datos['telefono']]);
         $cliente = $stmt->fetch();
-        
+
         if ($cliente) {
             $cliente_id = $cliente['id'];
             $stmt = $conn->prepare("
-                UPDATE clientes 
+                UPDATE clientes
                 SET nombre = ?, email = ?, updated_at = NOW()
                 WHERE id = ?
             ");
@@ -142,7 +151,7 @@ function crearReservaSegura($datos) {
             ]);
         } else {
             $stmt = $conn->prepare("
-                INSERT INTO clientes (nombre, telefono, email) 
+                INSERT INTO clientes (nombre, telefono, email)
                 VALUES (?, ?, ?)
             ");
             $stmt->execute([
@@ -152,12 +161,12 @@ function crearReservaSegura($datos) {
             ]);
             $cliente_id = $conn->lastInsertId();
         }
-        
+
         // 3. Obtener precio de la cancha
         $stmt = $conn->prepare("SELECT precio_hora FROM canchas WHERE id = ? AND activa = 1");
         $stmt->execute([$datos['cancha_id']]);
         $cancha = $stmt->fetch();
-        
+
         if (!$cancha) {
             $conn->rollBack();
             return [
@@ -165,10 +174,10 @@ function crearReservaSegura($datos) {
                 'mensaje' => 'La cancha seleccionada no está disponible'
             ];
         }
-        
+
         $precio_hora = $cancha['precio_hora'];
         $total = $precio_hora * $datos['horas'];
-        
+
         // 4. Crear reservas para cada hora
         $stmt = $conn->prepare("
             INSERT INTO reservas (
@@ -176,17 +185,17 @@ function crearReservaSegura($datos) {
                 total, estado, seña, saldo_pendiente, metodo_pago, notas
             ) VALUES (?, ?, ?, ?, ?, ?, 'confirmada', ?, ?, ?, ?)
         ");
-        
+
         $hora_inicio_int = (int)substr($datos['hora_inicio'], 0, 2);
         $primera_reserva_id = null;
-        
+
         for ($i = 0; $i < $datos['horas']; $i++) {
             $hora_actual = sprintf("%02d:00", $hora_inicio_int + $i);
             $hora_siguiente = sprintf("%02d:00", $hora_inicio_int + $i + 1);
-            
+
             $seña_hora = ($datos['seña'] ?? 0) / $datos['horas'];
             $saldo_hora = $precio_hora - $seña_hora;
-            
+
             $stmt->execute([
                 $datos['cancha_id'],
                 $cliente_id,
@@ -199,32 +208,32 @@ function crearReservaSegura($datos) {
                 $datos['metodo_pago'] ?? 'efectivo',
                 $datos['notas'] ?? null
             ]);
-            
+
             if ($i === 0) {
                 $primera_reserva_id = $conn->lastInsertId();
             }
         }
-        
+
         $conn->commit();
-        
+
         return [
             'success' => true,
             'mensaje' => 'Reserva creada exitosamente',
             'reserva_id' => $primera_reserva_id,
             'total' => $total
         ];
-        
+
     } catch (PDOException $e) {
         $conn->rollBack();
         error_log("Error al crear reserva: " . $e->getMessage());
-        
+
         if (strpos($e->getMessage(), 'reserva_unica_activa') !== false) {
             return [
                 'success' => false,
                 'mensaje' => 'Ya existe una reserva activa en ese horario'
             ];
         }
-        
+
         return [
             'success' => false,
             'mensaje' => 'Error al procesar la reserva. Por favor, intente nuevamente.'
@@ -235,21 +244,21 @@ function crearReservaSegura($datos) {
 // Función para cancelar reserva
 function cancelarReserva($reserva_id, $motivo = null, $usuario = 'sistema') {
     $conn = getConnection();
-    
+
     try {
         $conn->beginTransaction();
-        
+
         $stmt = $conn->prepare("
-            UPDATE reservas 
+            UPDATE reservas
             SET estado = 'cancelada',
                 cancelada_por = ?,
                 motivo_cancelacion = ?,
                 updated_at = NOW()
             WHERE id = ? AND estado IN ('pendiente', 'confirmada')
         ");
-        
+
         $stmt->execute([$usuario, $motivo, $reserva_id]);
-        
+
         if ($stmt->rowCount() > 0) {
             // Registrar en historial
             $stmt = $conn->prepare("
@@ -257,14 +266,14 @@ function cancelarReserva($reserva_id, $motivo = null, $usuario = 'sistema') {
                 VALUES (?, 'cancelada', ?, ?)
             ");
             $stmt->execute([$reserva_id, $usuario, $motivo]);
-            
+
             $conn->commit();
             return ['success' => true, 'mensaje' => 'Reserva cancelada exitosamente'];
         } else {
             $conn->rollBack();
             return ['success' => false, 'mensaje' => 'No se pudo cancelar la reserva'];
         }
-        
+
     } catch (PDOException $e) {
         $conn->rollBack();
         error_log("Error al cancelar reserva: " . $e->getMessage());
@@ -286,7 +295,7 @@ function formatearMoneda($monto) {
 if (session_status() === PHP_SESSION_NONE) {
     ini_set('session.cookie_httponly', 1);
     ini_set('session.use_only_cookies', 1);
-    ini_set('session.cookie_secure', 0); // Cambiar a 1 si usas HTTPS
+    ini_set('session.cookie_secure', filter_var(getenv('SESSION_COOKIE_SECURE') ?: '0', FILTER_VALIDATE_BOOLEAN) ? '1' : '0');
     session_start();
 }
 ?>
